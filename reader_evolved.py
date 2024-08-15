@@ -1,5 +1,20 @@
+import datetime
+import json
 import re
-from datetime import datetime, timedelta
+import time
+from datetime import timedelta
+
+import pytz
+
+from utils import get_start_timestamp_in_block, read_load_profile_intervals_from_block, load_profile_data
+
+peru_tz = pytz.timezone('America/Lima')  # Ejemplo de zona horaria para Perú
+
+
+def datetime_handler(x):
+    if isinstance(x, datetime.datetime):
+        return x.isoformat()
+    raise TypeError("Tipo no serializable")
 
 
 def hex_to_datetime(hex_string):
@@ -96,7 +111,8 @@ def parse_hex_message(pure_message):
     parsed_message['OK'] = pure_message_list[0]
 
     # Cantidad de datos
-    parsed_message['Cantidad de Datos'] = int(pure_message_list[1].replace('0x', '') + pure_message_list[2].replace('0x', ''), 16)
+    parsed_message['Cantidad de Datos'] = int(
+        pure_message_list[1].replace('0x', '') + pure_message_list[2].replace('0x', ''), 16)
 
     # Fecha y hora
     fecha_hex = [x.replace('0x', '') for x in pure_message_list[3:8]]
@@ -149,15 +165,20 @@ def parse_hex_message(pure_message):
 
     return parsed_message
 
+
 def detect_load_profile_messages(file_path):
     """
     Detecta mensajes relacionados con la lectura de la tabla 64 (perfil de carga) en un archivo de log.
     """
-    request_pattern = re.compile(r'3f0040')
-    response_pattern = re.compile(r'ee01c0[0-9a-fA-F]{4}f8')
+    first_block_flag = True
+    offset = 0
+
+    request_pattern = re.compile(r'3f0040')  #Lectura de la tabla 64
+    response_pattern = re.compile(r'ee01c0[0-9a-fA-F]{4}f8')  # parte de la respuesta del medidor
 
     last_request = None
     last_response = None
+    process_next = False
 
     with open(file_path, 'r') as file:
         for line in file:
@@ -167,8 +188,9 @@ def detect_load_profile_messages(file_path):
                 if request_pattern.search(hex_message):
                     last_request = hex_message
                     print(f"Solicitud identificada: {hex_message}")
+                    process_next = True
 
-            elif 'Medidor a Cliente (Hex):' in line:
+            elif 'Medidor a Cliente (Hex):' in line and process_next:
                 hex_message = line.split(': ')[1].strip()
 
                 if response_pattern.search(hex_message):
@@ -176,30 +198,31 @@ def detect_load_profile_messages(file_path):
                     print(f"Respuesta identificada: {hex_message}")
 
                     pure_message = hex_message[12:]
-                    pure_message_formatted = " ".join([f"0x{pure_message[i:i + 2]}" for i in range(0, len(pure_message), 2)])
-                    print(f"Mensaje puro formateado: {pure_message_formatted}")
+                    table = [int(pure_message[i:i + 2], 16) for i in range(0, len(pure_message), 2)]
+                    print(f"Mensaje puro formateado en forma de lista: {table}")
 
-                    try:
-                        date_time = extract_datetime_from_pure_message(pure_message_formatted)
-                        print(f"Fecha y hora extraídas: {date_time}")
-                    except ValueError as e:
-                        print(f"Advertencia: {e}")
+                    # Conversión de los valores hexadecimales en la lista a enteros
+                    year = 2000 + table[3]  # Conversión a entero con base 16
+                    month = table[4]
+                    day = table[5]
+                    hour = table[6]
+                    minute = table[7]
+                    interval_status_lsb = table[8]
+                    interval_status_msb = table[9]
 
-                    try:
-                        parsed_message = parse_hex_message(pure_message_formatted)
-                        if parsed_message:
-                            print(f"Mensaje parseado:\n")
-                            for key, value in parsed_message.items():
-                                if key == 'Intervalos':
-                                    for intervalo in value:
-                                        print(f"{intervalo['Timestamp']} - kWh-del: {intervalo['kWh-del']}, "
-                                              f"kVarh-del: {intervalo['kVarh-del']}, kWh-rec: {intervalo['kWh-rec']}, "
-                                              f"kVarh-rec: {intervalo['kVarh-rec']}\n")
-                                else:
-                                    print(f"{key}: {value}")
-                    except ValueError as e:
-                        print(f"Error al parsear el mensaje: {e}")
+                    block_end_timestamp = peru_tz.localize(
+                        datetime.datetime.strptime(f"{year}-{month}-{day} {hour}:{minute}:00",
+                                                   "%Y-%m-%d %H:%M:%S"))
+                    block_start_timestamp = get_start_timestamp_in_block(interval_status_lsb, interval_status_msb,
+                                                                         block_end_timestamp)
+                    print("Block start timestamp:", block_start_timestamp)
+                    read_load_profile_intervals_from_block(table, block_end_timestamp, interval_status_lsb,
+                                                           interval_status_msb, first_block_flag)
+                    process_next = False  # Resetea el flag después de procesar la respuesta
 
+                    print(load_profile_data)
+                    json_data = json.dumps(load_profile_data, default=datetime_handler, indent=4)
+                    print(json_data)
     if last_request and last_response:
         print("\nÚltima solicitud y respuesta de perfil de carga detectadas:")
         print(f"Solicitud: {last_request}")
@@ -207,8 +230,10 @@ def detect_load_profile_messages(file_path):
     else:
         print("No se encontraron solicitudes o respuestas completas de perfil de carga.")
 
-# Ruta al archivo de log (reemplazar con la ruta a tu archivo de log)
-file_path = './packet_exchange.log'
 
-# Detectar los mensajes de perfil de carga
-detect_load_profile_messages(file_path)
+if __name__ == "__main__":
+    # Ruta al archivo de log (reemplazar con la ruta a tu archivo de log)
+    file_path = './packet_exchange.log'
+
+    # Detectar los mensajes de perfil de carga
+    detect_load_profile_messages(file_path)

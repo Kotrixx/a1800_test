@@ -155,23 +155,6 @@ def detect_load_profile_messages(file_path):
                     print(table)
                     first_block_flag = True
 
-                    year = 2000 + int(table[3])
-                    month = table[4]
-                    day = table[5]
-                    hour = table[6]
-                    minute = int(table[7])
-                    interval_status_lsb = int(table[8])
-                    interval_status_msb = int(table[9])
-
-                    block_end_timestamp = peru_tz.localize(
-                        datetime.datetime.strptime(f"{year}-{month}-{day} {hour}:{minute}:00",
-                                                   "%Y-%m-%d %H:%M:%S"))
-                    block_start_timestamp = get_start_timestamp_in_block(interval_status_lsb, interval_status_msb,
-                                                                              block_end_timestamp)
-                    print("Block start timestamp:", block_start_timestamp)
-                    read_load_profile_intervals_from_block(table, block_end_timestamp, interval_status_lsb,
-                                                                interval_status_msb, first_block_flag)
-
                     pure_message_formatted = " ".join(
                         [f"0x{pure_message[i:i + 2]}" for i in range(0, len(pure_message), 2)])
                     print(f"Mensaje puro formateado: {pure_message_formatted}")
