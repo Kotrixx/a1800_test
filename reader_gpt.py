@@ -3,9 +3,11 @@ from datetime import datetime, timedelta
 import pytz
 
 from reader import hex_to_datetime
+from utils import get_start_timestamp_in_block
 
 peru_tz = pytz.timezone('America/Lima')  # Ejemplo de zona horaria para Perú
 utc_tz = pytz.utc
+
 
 class LoadProfileInterpreter:
 
@@ -42,6 +44,7 @@ class LoadProfileInterpreter:
         # Aquí procesas cada intervalo
         print(f"Procesando intervalo {idx} con timestamp {timestamp} y status {interval_status}")
 
+
 def parse_hex_message(pure_message):
     """
     Parsea un mensaje hexadecimal siguiendo la estructura dada:
@@ -65,7 +68,8 @@ def parse_hex_message(pure_message):
     parsed_message['OK'] = pure_message_list[0]
 
     # Cantidad de datos
-    parsed_message['Cantidad de Datos'] = int(pure_message_list[1].replace('0x', '') + pure_message_list[2].replace('0x', ''), 16)
+    parsed_message['Cantidad de Datos'] = int(
+        pure_message_list[1].replace('0x', '') + pure_message_list[2].replace('0x', ''), 16)
 
     # Fecha y hora
     fecha_hex = [x.replace('0x', '') for x in pure_message_list[3:8]]
@@ -76,7 +80,8 @@ def parse_hex_message(pure_message):
         interval_status_msb = int(pure_message_list[9].replace('0x', ''), 16)
 
         # Obtener la fecha y hora de inicio usando la lógica del intérprete
-        fecha_hora = interpreter.get_start_timestamp_in_block(interval_status_lsb, interval_status_msb, block_end_timestamp)
+        fecha_hora = interpreter.get_start_timestamp_in_block(interval_status_lsb, interval_status_msb,
+                                                              block_end_timestamp)
         parsed_message['Fecha y Hora'] = fecha_hora
     except ValueError as e:
         print(f"Advertencia: {e}. Se omitirá este mensaje.")
@@ -120,6 +125,7 @@ def parse_hex_message(pure_message):
 
     return parsed_message
 
+
 def detect_load_profile_messages(file_path):
     """
     Detecta mensajes relacionados con la lectura de la tabla 64 (perfil de carga) en un archivo de log.
@@ -141,13 +147,33 @@ def detect_load_profile_messages(file_path):
 
             elif 'Medidor a Cliente (Hex):' in line:
                 hex_message = line.split(': ')[1].strip()
-
                 if response_pattern.search(hex_message):
                     last_response = hex_message
-                    print(f"Respuesta identificada: {hex_message}")
-
+                    # print(f"Respuesta identificada: {hex_message}")
                     pure_message = hex_message[12:]
-                    pure_message_formatted = " ".join([f"0x{pure_message[i:i + 2]}" for i in range(0, len(pure_message), 2)])
+                    table = [pure_message[i:i + 2] for i in range(0, len(pure_message), 2)] #hex_list
+                    print(table)
+                    first_block_flag = True
+
+                    year = 2000 + int(table[3])
+                    month = table[4]
+                    day = table[5]
+                    hour = table[6]
+                    minute = int(table[7])
+                    interval_status_lsb = int(table[8])
+                    interval_status_msb = int(table[9])
+
+                    block_end_timestamp = peru_tz.localize(
+                        datetime.datetime.strptime(f"{year}-{month}-{day} {hour}:{minute}:00",
+                                                   "%Y-%m-%d %H:%M:%S"))
+                    block_start_timestamp = get_start_timestamp_in_block(interval_status_lsb, interval_status_msb,
+                                                                              block_end_timestamp)
+                    print("Block start timestamp:", block_start_timestamp)
+                    read_load_profile_intervals_from_block(table, block_end_timestamp, interval_status_lsb,
+                                                                interval_status_msb, first_block_flag)
+
+                    pure_message_formatted = " ".join(
+                        [f"0x{pure_message[i:i + 2]}" for i in range(0, len(pure_message), 2)])
                     print(f"Mensaje puro formateado: {pure_message_formatted}")
 
                     try:
@@ -171,6 +197,7 @@ def detect_load_profile_messages(file_path):
         print(f"Respuesta: {last_response}")
     else:
         print("No se encontraron solicitudes o respuestas completas de perfil de carga.")
+
 
 # Ruta al archivo de log (reemplazar con la ruta a tu archivo de log)
 file_path = './packet_exchange.log'
