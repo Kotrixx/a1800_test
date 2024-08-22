@@ -195,10 +195,12 @@ def detect_load_profile_messages(file_path):
 
                 if response_pattern.search(hex_message):
                     last_response = hex_message
-                    print(f"Respuesta identificada: {hex_message}")
+                    # print(f"Respuesta identificada: {hex_message}")
 
                     pure_message = hex_message[12:]
+                    # table2 = [(pure_message[i:i + 2], 16) for i in range(0, len(pure_message), 2)]
                     table = [int(pure_message[i:i + 2], 16) for i in range(0, len(pure_message), 2)]
+                    # print(table2)
                     print(f"Mensaje puro formateado en forma de lista: {table}")
 
                     # Conversión de los valores hexadecimales en la lista a enteros
