@@ -1,6 +1,8 @@
 import datetime
 import re
 
+last_block = []
+
 
 def detect_load_profile_messages(file_path):
     """
@@ -8,52 +10,85 @@ def detect_load_profile_messages(file_path):
     """
     first_block_flag = True
 
-    request_pattern = re.compile(r'3f0040')  # Lectura de la tabla 64
-    response_pattern = re.compile(r'ee01c0[0-9a-fA-F]{4}f8')  # Parte de la respuesta del medidor
+    # Lectura de la tabla 64
+    request_pattern = re.compile(r'3f0040')
+    response_pattern = re.compile(r'ee')
 
-    last_request = None
-    last_response = None
-    process_next = False
-
+    table_64_flag = False
+    process_next = True
     with open(file_path, 'r') as file:
         for line in file:
             if 'Cliente a Medidor (Hex):' in line:
                 hex_message = line.split(': ')[1].strip()
 
                 if request_pattern.search(hex_message):
-                    last_request = hex_message
-                    print(f"Solicitud identificada: {hex_message}")
-                    process_next = True
+                    print(f"Solicitud de tabla 64 identificada: {hex_message}")
+                    table_64_flag = True
+            elif 'Medidor a Cliente (Hex):' in line and process_next and table_64_flag:
+                hex_message = line.split(': ')[1].strip()  # Datos de capa 2 y de capa 7
+                if response_pattern.search(hex_message) and len(hex_message) > 18:
+                    hex_message_bytes = [hex_message[i:i + 2] for i in range(0, len(hex_message), 2)]
+                    link_layer = hex_message_bytes[:6]
+                    control_byte = link_layer[2]
+                    seq_byte = link_layer[3]
+                    packet_number = int(seq_byte, 16)
 
-            elif 'Medidor a Cliente (Hex):' in line and process_next:
-                hex_message = line.split(': ')[1].strip()
+                    if packet_number == 0:
+                        process_next = False
+                    packet_length = link_layer[4] + link_layer[5]
+                    packet_length = int(packet_length, 16)
+                    print("packet_length", packet_length)
+                    # Manejo del flujo en función a control_byte
+                    multiple_data_packets = bool(int(control_byte, 16) & (1 << 7))
+                    first_data_packet = bool(int(control_byte, 16) & (1 << 6))
+                    print(multiple_data_packets)
 
-                if response_pattern.search(hex_message):
-                    last_response = hex_message
+                    """if multiple_data_packets:
+                        if first_data_packet:
+                            print("Primer paquete")
+                        else:
+                            # Verificar número de página
+                            print(f"Número de paquete: {packet_number}")"""
+
                     pure_message = hex_message[12:]
+                    pure_message = pure_message[:-2]
+                    #Contando (no se si esta bien), los paquetes que tienen
                     table = [int(pure_message[i:i + 2], 16) for i in range(0, len(pure_message), 2)]
-                    hex_message2 = [(last_response[i:i + 2], 16) for i in range(0, len(last_response), 2)]
 
                     print(f"Tabla pura: {table}")
-                    print(f"tamaño: {len(table)}")
+                    print(f"Tamaño: {len(table)}")
                     print(f"\nOK: {table[0]}, Data: {table[1]}, {table[2]}")
+
                     # PURAMENTE FECHA Y DATOS
                     table = table[3::]
-                    print(table)
                     print(f"First Date: {table[0]}-{table[1]}-{table[2]} {table[3]}:{table[4]}")
                     print(len(table))
-                    # table 5 - 6 son los bits
+
+                    # Procesar el primer bloque
                     block_data = 7 + 11 * 16
                     block_data_cp = block_data
                     i = 1
+
                     while len(table) > block_data_cp:
                         sub_table = table[block_data * i:block_data * (i + 1)]
                         print(f"\nElements {i}: {sub_table}\n")
+                        print(f"Size: {len(sub_table)}")
 
-                        process_block(sub_table, first_block_flag)
-                        i = i + 1
-                        block_data_cp = block_data + block_data_cp
-                    process_next = False
+                        # Validación para verificar si la tabla tiene 183 elementos
+                        if len(sub_table) == 183:
+                            process_block(sub_table, first_block_flag)
+                        else:
+                            print(f"Último bloque detectado con {len(sub_table)} elementos.")
+                            # Almacenar este bloque en la variable global
+                            global last_block
+                            last_block = sub_table
+                            break  # Romper el bucle ya que este es el último bloque
+
+                        i += 1
+                        block_data_cp += block_data
+
+                    # Después de procesar el paquete actual, resetear el estado para buscar el siguiente
+                    first_block_flag = True  # Si quieres resetear este flag también
 
 
 def process_block(table, first_block_flag):

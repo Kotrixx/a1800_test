@@ -173,12 +173,15 @@ def detect_load_profile_messages(file_path):
     first_block_flag = True
     offset = 0
 
-    request_pattern = re.compile(r'3f0040')  #Lectura de la tabla 64
-    response_pattern = re.compile(r'ee01c0[0-9a-fA-F]{4}f8')  # parte de la respuesta del medidor
+    request_pattern = re.compile(r'3f0040')  # Lectura de la tabla 64
+    response_pattern = re.compile(r'ee01c0[0-9a-fA-F]{4}f8')  # Parte de la respuesta del medidor
 
     last_request = None
     last_response = None
     process_next = False
+    next_message_captured = False
+    captured_message = None
+    additional_message = None
 
     with open(file_path, 'r') as file:
         for line in file:
@@ -189,22 +192,31 @@ def detect_load_profile_messages(file_path):
                     last_request = hex_message
                     print(f"Solicitud identificada: {hex_message}")
                     process_next = True
+                    next_message_captured = False  # Reiniciar flag para captura de siguiente mensaje
 
             elif 'Medidor a Cliente (Hex):' in line and process_next:
                 hex_message = line.split(': ')[1].strip()
 
                 if response_pattern.search(hex_message):
                     last_response = hex_message
-                    # print(f"Respuesta identificada: {hex_message}")
-
                     pure_message = hex_message[12:]
-                    # table2 = [(pure_message[i:i + 2], 16) for i in range(0, len(pure_message), 2)]
                     table = [int(pure_message[i:i + 2], 16) for i in range(0, len(pure_message), 2)]
-                    # print(table2)
                     print(f"Mensaje puro formateado en forma de lista: {table}")
 
-                    # Conversión de los valores hexadecimales en la lista a enteros
-                    year = 2000 + table[3]  # Conversión a entero con base 16
+                    if not next_message_captured:
+                        captured_message = hex_message
+                        next_message_captured = True
+                        print(f"Mensaje capturado: {captured_message}")
+                        continue  # Saltar a la siguiente iteración para capturar el siguiente mensaje
+
+                    # Si hay una condición para capturar un mensaje adicional, verifica aquí
+                    condition_met = check_some_condition(table)  # Define esta función para tu condición
+                    if condition_met:
+                        additional_message = hex_message
+                        print(f"Mensaje adicional capturado debido a la condición: {additional_message}")
+
+                    # Procesamiento normal del bloque de datos
+                    year = 2000 + table[3]
                     month = table[4]
                     day = table[5]
                     hour = table[6]
@@ -222,6 +234,7 @@ def detect_load_profile_messages(file_path):
                                                            interval_status_msb, first_block_flag)
                     process_next = False  # Resetea el flag después de procesar la respuesta
 
+                    # Convertir y mostrar los datos del perfil de carga
                     print(load_profile_data)
                     json_data = json.dumps(load_profile_data, default=datetime_handler, indent=4)
                     print(json_data)
@@ -231,6 +244,18 @@ def detect_load_profile_messages(file_path):
         print(f"Respuesta: {last_response}")
     else:
         print("No se encontraron solicitudes o respuestas completas de perfil de carga.")
+
+def check_some_condition(table):
+    # Define aquí tu condición personalizada que debe cumplirse para capturar un mensaje adicional
+    # Ejemplo: verificar si un valor específico en la tabla está presente
+    # return True o False según la lógica de tu condición
+    return False  # Cambia esta lógica según tu caso
+
+# Resto de tus funciones como 'get_start_timestamp_in_block', 'read_load_profile_intervals_from_block', etc.
+
+# Ejecución del script
+file_path = './packet_exchange.log'
+detect_load_profile_messages(file_path)
 
 
 if __name__ == "__main__":
