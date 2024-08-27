@@ -4,15 +4,12 @@ import binascii
 import os
 import datetime
 
-# Configuración de los puertos y la dirección del medidor
 LISTEN_PORT = 26000
-METER_IP = '192.168.18.250'  # IP del medidor
+METER_IP = '192.168.18.250'
 METER_PORT = 20000
 
-# Archivo donde se guardarán los logs
 LOG_FILE = "packet_exchange.log"
 
-# Crear el archivo de log si no existe
 if not os.path.exists(LOG_FILE):
     with open(LOG_FILE, 'w') as f:
         f.write("Intercambio de Paquetes:\n\n")

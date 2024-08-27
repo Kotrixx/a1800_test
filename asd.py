@@ -5,7 +5,6 @@ import pandas as pd
 
 last_block = []
 report = {}
-report2 = []
 
 
 def detect_load_profile_messages(file_path):
@@ -180,7 +179,6 @@ def example_parsing_function(table, idx, interval_status, current_interval_times
     }
 
     report[date_str].append(interval_data)
-    report2.append(interval_data)
 
     if interval_status:
         print(f"Interval {idx} at {current_interval_timestamp} is active.")
