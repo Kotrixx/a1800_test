@@ -1,7 +1,11 @@
 import datetime
+import json
 import re
+import pandas as pd
 
 last_block = []
+report = {}
+report2 = []
 
 
 def detect_load_profile_messages(file_path):
@@ -9,14 +13,15 @@ def detect_load_profile_messages(file_path):
     Detecta mensajes relacionados con la lectura de la tabla 64 (perfil de carga) en un archivo de log.
     """
     first_block_flag = True
-
-    # Lectura de la tabla 64
+    first_packet_flag = True
     request_pattern = re.compile(r'3f0040')
     response_pattern = re.compile(r'ee')
 
     table_64_flag = False
     process_next = True
     with open(file_path, 'r') as file:
+        global last_block
+
         for line in file:
             if 'Cliente a Medidor (Hex):' in line:
                 hex_message = line.split(': ')[1].strip()
@@ -38,57 +43,56 @@ def detect_load_profile_messages(file_path):
                     packet_length = link_layer[4] + link_layer[5]
                     packet_length = int(packet_length, 16)
                     print("packet_length", packet_length)
-                    # Manejo del flujo en función a control_byte
                     multiple_data_packets = bool(int(control_byte, 16) & (1 << 7))
                     first_data_packet = bool(int(control_byte, 16) & (1 << 6))
                     print(multiple_data_packets)
 
-                    """if multiple_data_packets:
-                        if first_data_packet:
-                            print("Primer paquete")
-                        else:
-                            # Verificar número de página
-                            print(f"Número de paquete: {packet_number}")"""
-
                     pure_message = hex_message[12:]
-                    pure_message = pure_message[:-2]
-                    #Contando (no se si esta bien), los paquetes que tienen
+                    pure_message = pure_message[:-2]  # Removiendo bytes de CRC
                     table = [int(pure_message[i:i + 2], 16) for i in range(0, len(pure_message), 2)]
 
                     print(f"Tabla pura: {table}")
                     print(f"Tamaño: {len(table)}")
                     print(f"\nOK: {table[0]}, Data: {table[1]}, {table[2]}")
 
-                    # PURAMENTE FECHA Y DATOS
-                    table = table[3::]
+                    if first_packet_flag:
+                        table = table[3:]
+                    else:
+                        table = table[1:]
                     print(f"First Date: {table[0]}-{table[1]}-{table[2]} {table[3]}:{table[4]}")
                     print(len(table))
 
-                    # Procesar el primer bloque
                     block_data = 7 + 11 * 16
                     block_data_cp = block_data
                     i = 1
 
                     while len(table) > block_data_cp:
-                        sub_table = table[block_data * i:block_data * (i + 1)]
-                        print(f"\nElements {i}: {sub_table}\n")
-                        print(f"Size: {len(sub_table)}")
+                        last_block_size = len(last_block)
 
-                        # Validación para verificar si la tabla tiene 183 elementos
-                        if len(sub_table) == 183:
-                            process_block(sub_table, first_block_flag)
+                        if last_block_size != 0:
+                            index = 183 - last_block_size
+                            sub_block = last_block + table[:index]
+                            process_block(sub_block, first_block_flag)
+                            last_block = []
+                            table = table[index:]
+                            print("actualizando valores: ", table)
                         else:
-                            print(f"Último bloque detectado con {len(sub_table)} elementos.")
-                            # Almacenar este bloque en la variable global
-                            global last_block
-                            last_block = sub_table
-                            break  # Romper el bucle ya que este es el último bloque
+                            sub_table = table[block_data_cp:block_data_cp + 183]
+                            print(f"\nElements {i}: {sub_table}\n")
+                            print(f"Size: {len(sub_table)}")
+
+                            if len(sub_table) == 183:
+                                process_block(sub_table, first_block_flag)
+                            else:
+                                print(f"Último bloque detectado con {len(sub_table)} elementos.")
+                                last_block = sub_table
+                                first_packet_flag = False
+                                break
 
                         i += 1
-                        block_data_cp += block_data
+                        block_data_cp += 183
 
-                    # Después de procesar el paquete actual, resetear el estado para buscar el siguiente
-                    first_block_flag = True  # Si quieres resetear este flag también
+                    first_block_flag = True
 
 
 def process_block(table, first_block_flag):
@@ -162,7 +166,22 @@ def read_intervals_from_block(
 
 
 def example_parsing_function(table, idx, interval_status, current_interval_timestamp):
-    # Función de ejemplo que imprime la información del intervalo procesado
+    global report
+    date_str = current_interval_timestamp.strftime('%Y-%m-%d')
+    time_str = current_interval_timestamp.strftime('%H:%M')
+
+    if date_str not in report:
+        report[date_str] = []
+
+    interval_data = {
+        "interval": idx,
+        "status": "active" if interval_status else "inactive",
+        "time": time_str
+    }
+
+    report[date_str].append(interval_data)
+    report2.append(interval_data)
+
     if interval_status:
         print(f"Interval {idx} at {current_interval_timestamp} is active.")
     else:
@@ -172,3 +191,26 @@ def example_parsing_function(table, idx, interval_status, current_interval_times
 # Uso de ejemplo:
 file_path = './packet_exchange.log'
 detect_load_profile_messages(file_path)
+data = report
+
+rows = []
+
+for date, intervals in data.items():
+    for interval in intervals:
+        rows.append({
+            "Date": date,
+            "Interval": interval["interval"],
+            "Status": interval["status"],
+            "Time": interval["time"]
+        })
+
+# Crear un DataFrame con los datos tabulares
+df = pd.DataFrame(rows)
+
+# Escribir el DataFrame a un archivo Excel
+df.to_excel('report_from_json.xlsx', index=False)
+
+print("Reporte generado en 'report_from_json.xlsx'")
+
+with open('report.json', 'w') as json_file:
+    json.dump(report, json_file, indent=4)
